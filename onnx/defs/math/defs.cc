@@ -3337,4 +3337,238 @@ ONNX_OPERATOR_SET_SCHEMA(
           result_shape_proto.add_dim()->set_dim_value(2);
           updateOutputShape(ctx, 0, result_shape_proto);
         }));
+
+static const char* SVD_doc = R"DOC(
+Singular Value Decomposition
+
+Factorizes A using SVD. Both full and partial SVD compute the standard SVD factorization `A = U * diag(S) * Vh`.
+Computes the full SVD by default. Partial SVD is also known as [thin SVD](https://en.wikipedia.org/wiki/Singular_value_decomposition#Thin_SVD)
+
+A must have at least 2 dimensions.
+
+All dimensions higher than 2 are used for broadcasting, and SVD is only applied to the lowest two dimensions.
+See [numpy](https://numpy.org/doc/stable/reference/generated/numpy.linalg.svd.html).
+
+Dimensions:
+
+A: (M, N)
+
+K: Min(M, N)
+
+Full SVD:
+
+U: (M, M)
+
+S: (K)
+
+Vh: (N, N)
+
+Partial SVD:
+
+U: (M, K)
+
+S: (K)
+
+Vh: (K, N)
+
+TODO - add doc about differentiability
+)DOC";
+
+// When compute_uv is set to false
+// - inference is not performed for U and Vh
+// - S is at output index 0
+void SVDInferenceFunction(InferenceContext& ctx, bool compute_uv) {
+  const auto U_idx = 0;
+  const auto S_idx = compute_uv ? 1 : 0;
+  const auto Vh_idx = 2;
+
+  // All output elements types are same as input element types
+  if (compute_uv) {
+    propagateElemTypeFromInputToOutput(ctx, 0, U_idx);
+    propagateElemTypeFromInputToOutput(ctx, 0, Vh_idx);
+  }
+
+  propagateElemTypeFromInputToOutput(ctx, 0, S_idx);
+
+  // SVD is applied to lowest two dimensions of the matrix.
+  // The rest of the dimensions are used for broadcasting,
+  // see https://numpy.org/doc/stable/reference/generated/numpy.linalg.svd.html
+
+  const auto A_shape = ctx.getInputType(0)->tensor_type().shape();
+  const auto A_dim_size = A_shape.dim_size();
+
+  if (A_dim_size < 2) {
+    fail_shape_inference("Input tensor must have at least 2 dimensions");
+  }
+
+  auto dim_idx = 0;
+
+  auto U_shape = compute_uv ? ctx.getOutputType(U_idx)->mutable_tensor_type()->mutable_shape() : nullptr;
+  auto S_shape = ctx.getOutputType(S_idx)->mutable_tensor_type()->mutable_shape();
+  auto Vh_shape = compute_uv ? ctx.getOutputType(Vh_idx)->mutable_tensor_type()->mutable_shape() : nullptr;
+
+  // Copy over all dimensions but the last two
+  for (; dim_idx < A_dim_size - 2; ++dim_idx) {
+    const auto dim = A_shape.dim(dim_idx);
+
+    if (compute_uv) {
+      *U_shape->add_dim() = dim;
+      *Vh_shape->add_dim() = dim;
+    }
+
+    *S_shape->add_dim() = dim;
+  }
+
+  // SVD Factorization is only applied to the last two dimensions.
+
+  const auto A_n_rows_dim = A_shape.dim(dim_idx);
+  const auto A_n_cols_dim = A_shape.dim(dim_idx + 1);
+
+  const auto min_dimension = A_n_rows_dim.dim_value() < A_n_cols_dim.dim_value() ? A_n_rows_dim : A_n_cols_dim;
+
+  if (compute_uv) {
+    const auto* full_matrices_attr = ctx.getAttribute("full_matrices");
+    const auto full_matrices = full_matrices_attr == nullptr || full_matrices_attr->i() != 0;
+
+    if (full_matrices) {
+      // Full SVD
+      // U and Vh are both square matrices
+      *U_shape->add_dim() = A_n_rows_dim;
+      *U_shape->add_dim() = A_n_rows_dim;
+
+      *S_shape->add_dim() = min_dimension;
+
+      *Vh_shape->add_dim() = A_n_cols_dim;
+      *Vh_shape->add_dim() = A_n_cols_dim;
+    } else {
+      // Partial SVD
+      // U's number of columns becomes the min dimension
+      // Vh's number of rows becomes the min dimension
+      *U_shape->add_dim() = min_dimension;
+      *U_shape->add_dim() = A_n_rows_dim;
+
+      *S_shape->add_dim() = min_dimension;
+
+      *Vh_shape->add_dim() = min_dimension;
+      *Vh_shape->add_dim() = A_n_cols_dim;
+    }
+  } else {
+    *S_shape->add_dim() = min_dimension;
+  }
+}
+
+ONNX_OPERATOR_SET_SCHEMA(
+    SVD,
+    18,
+    OpSchema()
+        .SetDoc(SVD_doc)
+        .Input(
+            0,
+            "A",
+            "Input tensor to factor. Must have at least 2 dimensions.",
+            "T",
+            OpSchema::Single,
+            true,
+            1,
+            // TODO
+            OpSchema::Unknown)
+        .Output(
+            0,
+            "U",
+            "Left singular vectors as matrix. See operator doc for dimension information.",
+            "T",
+            OpSchema::Single,
+            true,
+            1,
+            // TODO
+            OpSchema::Unknown)
+        .Output(
+            1,
+            "S",
+            "Vector of singular values. See operator doc for dimension information.",
+            "S",
+            OpSchema::Single,
+            true,
+            1,
+            // TODO
+            OpSchema::Unknown)
+        .Output(
+            2,
+            "Vh",
+            "Right singular vectors as matrix. See operator doc for dimension information.",
+            "T",
+            OpSchema::Single,
+            true,
+            1,
+            // TODO
+            OpSchema::Unknown)
+        .TypeConstraint(
+            "T",
+            {"tensor(float16)",
+             "tensor(float)",
+             "tensor(double)",
+             "tensor(bfloat16)",
+             "tensor(complex64)",
+             "tensor(complex128)"},
+            "Constrain input to factorable numeric tensors (including complex numbers). U and Vh will have the same type as the input.")
+        .TypeConstraint(
+            "S",
+            {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
+            "The singular values will always be real numbers")
+        .Attr(
+            "full_matrices",
+            "If true (1), compute the full SVD. If false (0), compute the reduced SVD. Defaults to true (1).",
+            AttributeProto::INT,
+            false)
+        .TypeAndShapeInferenceFunction([](InferenceContext& ctx) { SVDInferenceFunction(ctx, true); }));
+
+static const char* SVDVals_doc = R"DOC(
+Singular Value Decomposition - only compute the singular values.
+
+See SVD operator doc for general SVD factorization and dimension information.
+SVDVals only computes and outputs S, the vector of singular values.
+
+Full vs partial SVD does not apply as the vector of singular values will always have the same dimensions.
+
+TODO - add doc about differentiability. According to pytorch, svdvals is always differentiable
+)DOC";
+
+ONNX_OPERATOR_SET_SCHEMA(
+    SVDVals,
+    18,
+    OpSchema()
+        .SetDoc(SVDVals_doc)
+        .Input(
+            0,
+            "A",
+            "Input tensor to factor. Must have at least 2 dimensions",
+            "T",
+            OpSchema::Single,
+            true,
+            1,
+            OpSchema::Differentiable)
+        .Output(
+            0,
+            "S",
+            "Vector of singular values. See SVD operator doc for dimension information.",
+            "S",
+            OpSchema::Single,
+            true,
+            1,
+            OpSchema::Differentiable)
+        .TypeConstraint(
+            "T",
+            {"tensor(float16)",
+             "tensor(float)",
+             "tensor(double)",
+             "tensor(bfloat16)",
+             "tensor(complex64)",
+             "tensor(complex128)"},
+            "Constrain input to factorable numeric tensors (including complex numbers).")
+        .TypeConstraint(
+            "S",
+            {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
+            "The singular values will always be real numbers")
+        .TypeAndShapeInferenceFunction([](InferenceContext& ctx) { SVDInferenceFunction(ctx, false); }));
+
 } // namespace ONNX_NAMESPACE
