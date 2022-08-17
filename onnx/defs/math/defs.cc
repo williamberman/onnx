@@ -3344,6 +3344,9 @@ Singular Value Decomposition
 Factorizes A using SVD. Both full and partial SVD compute the standard SVD factorization `A = U * diag(S) * Vh`.
 Computes the full SVD by default. Partial SVD is also known as [thin SVD](https://en.wikipedia.org/wiki/Singular_value_decomposition#Thin_SVD)
 
+Setting compute_uv to false (0) will only compute the singular values. For the singular values, full vs partial SVD does not apply as the singular values 
+will always have the same dimensions.
+
 A must have at least 2 dimensions.
 
 All dimensions higher than 2 are used for broadcasting, and SVD is only applied to the lowest two dimensions.
@@ -3374,12 +3377,15 @@ Vh: (K, N)
 TODO - add doc about differentiability
 )DOC";
 
-// When compute_uv is set to false
-// - inference is not performed for U and Vh
-// - S is at output index 0
-void SVDInferenceFunction(InferenceContext& ctx, bool compute_uv) {
-  const auto U_idx = 0;
-  const auto S_idx = compute_uv ? 1 : 0;
+void SVDInferenceFunction(InferenceContext& ctx) {
+  // When compute_uv is set to false
+  // - inference is not performed for U and Vh
+  const auto* compute_uv_attr = ctx.getAttribute("compute_uv");
+  const bool compute_uv = compute_uv_attr == nullptr || compute_uv_attr->i() != 0;
+
+  // Note that S is idx 0 because U and Vh are optional
+  const auto U_idx = 1;
+  const auto S_idx = 0;
   const auto Vh_idx = 2;
 
   // All output elements types are same as input element types
@@ -3474,16 +3480,6 @@ ONNX_OPERATOR_SET_SCHEMA(
             OpSchema::Unknown)
         .Output(
             0,
-            "U",
-            "Left singular vectors as matrix. See operator doc for dimension information.",
-            "T",
-            OpSchema::Single,
-            true,
-            1,
-            // TODO
-            OpSchema::Unknown)
-        .Output(
-            1,
             "S",
             "Vector of singular values. See operator doc for dimension information.",
             "S",
@@ -3493,11 +3489,21 @@ ONNX_OPERATOR_SET_SCHEMA(
             // TODO
             OpSchema::Unknown)
         .Output(
+            1,
+            "U",
+            "Left singular vectors as matrix. See operator doc for dimension information. Only computed if compute_uv is true (1).",
+            "T",
+            OpSchema::Optional,
+            true,
+            1,
+            // TODO
+            OpSchema::Unknown)
+        .Output(
             2,
             "Vh",
-            "Right singular vectors as matrix. See operator doc for dimension information.",
+            "Right singular vectors as matrix. See operator doc for dimension information. Only computed if compute_uv is true (1).",
             "T",
-            OpSchema::Single,
+            OpSchema::Optional,
             true,
             1,
             // TODO
@@ -3520,55 +3526,11 @@ ONNX_OPERATOR_SET_SCHEMA(
             "If true (1), compute the full SVD. If false (0), compute the reduced SVD. Defaults to true (1).",
             AttributeProto::INT,
             false)
-        .TypeAndShapeInferenceFunction([](InferenceContext& ctx) { SVDInferenceFunction(ctx, true); }));
-
-static const char* SVDVals_doc = R"DOC(
-Singular Value Decomposition - only compute the singular values.
-
-See SVD operator doc for general SVD factorization and dimension information.
-SVDVals only computes and outputs S, the vector of singular values.
-
-Full vs partial SVD does not apply as the vector of singular values will always have the same dimensions.
-
-TODO - add doc about differentiability. According to pytorch, svdvals is always differentiable
-)DOC";
-
-ONNX_OPERATOR_SET_SCHEMA(
-    SVDVals,
-    18,
-    OpSchema()
-        .SetDoc(SVDVals_doc)
-        .Input(
-            0,
-            "A",
-            "Input tensor to factor. Must have at least 2 dimensions",
-            "T",
-            OpSchema::Single,
-            true,
-            1,
-            OpSchema::Differentiable)
-        .Output(
-            0,
-            "S",
-            "Vector of singular values. See SVD operator doc for dimension information.",
-            "S",
-            OpSchema::Single,
-            true,
-            1,
-            OpSchema::Differentiable)
-        .TypeConstraint(
-            "T",
-            {"tensor(float16)",
-             "tensor(float)",
-             "tensor(double)",
-             "tensor(bfloat16)",
-             "tensor(complex64)",
-             "tensor(complex128)"},
-            "Constrain input to factorable numeric tensors (including complex numbers).")
-        .TypeConstraint(
-            "S",
-            {"tensor(float16)", "tensor(float)", "tensor(double)", "tensor(bfloat16)"},
-            "The singular values will always be real numbers")
-        .TypeAndShapeInferenceFunction([](InferenceContext& ctx) { SVDInferenceFunction(ctx, false); }));
+        .Attr(
+            "compute_uv",
+            "If true (1), compute U and Vh. If false (0), only compute S. Defaults to true (1).",
+            AttributeProto::INT,
+            false)
+        .TypeAndShapeInferenceFunction([](InferenceContext& ctx) { SVDInferenceFunction(ctx); }));
 
 } // namespace ONNX_NAMESPACE

@@ -21613,6 +21613,9 @@ Note: `round_int` stands for computing the nearest integer value, rounding halfw
   Factorizes A using SVD. Both full and partial SVD compute the standard SVD factorization `A = U * diag(S) * Vh`.
   Computes the full SVD by default. Partial SVD is also known as [thin SVD](https://en.wikipedia.org/wiki/Singular_value_decomposition#Thin_SVD)
 
+  Setting compute_uv to false (0) will only compute the singular values. For the singular values, full vs partial SVD does not apply as the singular values
+  will always have the same dimensions.
+
   A must have at least 2 dimensions.
 
   All dimensions higher than 2 are used for broadcasting, and SVD is only applied to the lowest two dimensions.
@@ -21649,6 +21652,8 @@ This version of the operator has been available since version 18 of the default 
 #### Attributes
 
 <dl>
+<dt><tt>compute_uv</tt> : int</dt>
+<dd>If true (1), compute U and Vh. If false (0), only compute S. Defaults to true (1).</dd>
 <dt><tt>full_matrices</tt> : int</dt>
 <dd>If true (1), compute the full SVD. If false (0), compute the reduced SVD. Defaults to true (1).</dd>
 </dl>
@@ -21660,15 +21665,15 @@ This version of the operator has been available since version 18 of the default 
 <dd>Input tensor to factor. Must have at least 2 dimensions.</dd>
 </dl>
 
-#### Outputs
+#### Outputs (1 - 3)
 
 <dl>
-<dt><tt>U</tt> : T</dt>
-<dd>Left singular vectors as matrix. See operator doc for dimension information.</dd>
 <dt><tt>S</tt> : S</dt>
 <dd>Vector of singular values. See operator doc for dimension information.</dd>
-<dt><tt>Vh</tt> : T</dt>
-<dd>Right singular vectors as matrix. See operator doc for dimension information.</dd>
+<dt><tt>U</tt> (optional) : T</dt>
+<dd>Left singular vectors as matrix. See operator doc for dimension information. Only computed if compute_uv is true (1).</dd>
+<dt><tt>Vh</tt> (optional) : T</dt>
+<dd>Right singular vectors as matrix. See operator doc for dimension information. Only computed if compute_uv is true (1).</dd>
 </dl>
 
 #### Type Constraints
@@ -21676,44 +21681,6 @@ This version of the operator has been available since version 18 of the default 
 <dl>
 <dt><tt>T</tt> : tensor(float16), tensor(float), tensor(double), tensor(bfloat16), tensor(complex64), tensor(complex128)</dt>
 <dd>Constrain input to factorable numeric tensors (including complex numbers). U and Vh will have the same type as the input.</dd>
-<dt><tt>S</tt> : tensor(float16), tensor(float), tensor(double), tensor(bfloat16)</dt>
-<dd>The singular values will always be real numbers</dd>
-</dl>
-
-### <a name="SVDVals-18"></a>**SVDVals-18**</a>
-
-  Singular Value Decomposition - only compute the singular values.
-
-  See SVD operator doc for general SVD factorization and dimension information.
-  SVDVals only computes and outputs S, the vector of singular values.
-
-  Full vs partial SVD does not apply as the vector of singular values will always have the same dimensions.
-
-  TODO - add doc about differentiability. According to pytorch, svdvals is always differentiable
-
-#### Version
-
-This version of the operator has been available since version 18 of the default ONNX operator set.
-
-#### Inputs
-
-<dl>
-<dt><tt>A</tt> (differentiable) : T</dt>
-<dd>Input tensor to factor. Must have at least 2 dimensions</dd>
-</dl>
-
-#### Outputs
-
-<dl>
-<dt><tt>S</tt> (differentiable) : S</dt>
-<dd>Vector of singular values. See SVD operator doc for dimension information.</dd>
-</dl>
-
-#### Type Constraints
-
-<dl>
-<dt><tt>T</tt> : tensor(float16), tensor(float), tensor(double), tensor(bfloat16), tensor(complex64), tensor(complex128)</dt>
-<dd>Constrain input to factorable numeric tensors (including complex numbers).</dd>
 <dt><tt>S</tt> : tensor(float16), tensor(float), tensor(double), tensor(bfloat16)</dt>
 <dd>The singular values will always be real numbers</dd>
 </dl>

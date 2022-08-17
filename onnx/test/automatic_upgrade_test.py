@@ -1347,10 +1347,7 @@ class TestAutomaticUpgrade(unittest.TestCase):
         )
 
     def test_SVD(self) -> None:
-        self._test_op_upgrade('SVD', 18, [[3, 4]], [[3, 3], [3], [4, 4]])
-
-    def test_SVDVals(self) -> None:
-        self._test_op_upgrade('SVDVals', 18, [[3, 4]], [[3]])
+        self._test_op_upgrade("SVD", 18, [[3, 4]], [[3], [3, 3], [4, 4]])
 
     def test_Tanh(self) -> None:
         self._test_op_upgrade("Tanh", 1, attrs={"consumed_inputs": [0]})
